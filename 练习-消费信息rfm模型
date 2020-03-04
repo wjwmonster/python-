@@ -43,6 +43,7 @@ df1=consume_df.groupby('user_id')['order_amount'].sum().to_frame().reset_index()
 print(df1[df1['order_amount']<=1000])
 plt.figure(figsize=(20,8),dpi=80)
 sns.distplot(df1.loc[df1['order_amount']<=1000,'order_amount'])
+
 #3.各个用户消费总次数的直方分布图（次数在100以内）
 df2=consume_df.groupby('user_id')['order_amount'].count().to_frame().reset_index()
 df2[df2['order_amount']<=100]
