@@ -1,10 +1,67 @@
+1.导入python库和模块
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 %matplotlib inline
+2.导入数据集并查看数据信息
 consume_df=pd.read_csv(r'C:\Users\wjw\Desktop\数据集\7天入门数据分析课件\day11\data\CDNOW_master.txt',sep='\s+',header=None)
-consume_df.columns=['user_id','order_dt','order_product','order_amount']
+consume_df.columns=['user_id','order_dt','order_product','order_amount']#给列索引设置名称
 print(consume_df.info())#查看数据的信息，可以看到时间序列需修改格式
 print(consume_df.isnull().sum())#可以看出原数据中没有空值
-consume_df.describe()
+consume_df.describe()#数据的描述性统计信息
+#将日期改为时间序列的格式，添加一列为月份
+consume_df['order_dt']=pd.to_datetime(consume_df['order_dt'],format='%Y%m%d')#将日期改为时间序列的格式
+consume_df['month']=consume_df['order_dt'].astype('datetime64[M]')#添加一列为月份
+consume_df['month']=pd.to_datetime(consume_df['month'],format='%Y%m%d')
+#计算所有用户购买产品的平均数量和平均花费
+consume_df['user_id'].nunique()#id去除重复项，计算共有多少名用户消费
+consume_df['order_product'].sum()/consume_df['user_id'].nunique()#每个用户的平均购买产品数量
+consume_df['order_amount'].sum()/consume_df['user_id'].nunique()#每个用户的平均购买产品金额
+# 按月进行数据分析
+1.用户每月花费的总金额
+2.所有用户每月的购买产品数量
+3.所有用户每月的消费总次数
+4.统计每月的消费人数
+consume_df.groupby('month')['order_amount'].sum().plot(kind='bar',title='用户每月花费的总金额')
+consume_df.groupby('month')['order_product'].sum().plot(kind='bar',title='用户每月购买产品的总数',color='g')
+consume_df.groupby('month')['order_product'].count().plot(kind='bar',title='用户每月消费的总次数',color='r')
+#统计每月的消费人数
+consume_df.groupby('month')['user_id'].nunique().plot(kind='bar',title='每月的消费人数',color='cyan')
+用户个体消费数据分析
+1.用户消费总金额和消费总次数的统计描述
+2.用户消费金额和消费次数的散点图
+3.各个用户消费总金额的直方分布图（金额在1000以内）
+3.各个用户消费总次数的直方分布图（次数在100以内）
+#各个用户消费总金额的直方分布图（金额在1000以内）
+df1=consume_df.groupby('user_id')['order_amount'].sum().to_frame().reset_index()
+print(df1[df1['order_amount']<=1000])
+plt.figure(figsize=(20,8),dpi=80)
+sns.distplot(df1.loc[df1['order_amount']<=1000,'order_amount'])
+#3.各个用户消费总次数的直方分布图（次数在100以内）
+df2=consume_df.groupby('user_id')['order_amount'].count().to_frame().reset_index()
+df2[df2['order_amount']<=100]
+sns.distplot(df1.loc[df1['order_amount']<=100,'order_amount'])
+#用户消费金额和消费次数的散点图
+plt.figure(figsize=(20,8),dpi=80)
+plt.scatter(consume_df['order_amount'],consume_df['order_product'])
+1.用户第一次消费的月份分布和人数统计
+2.用户最后一次消费的月份分布和人数统计
+3.新老客户的占比：消费一次的为新客户，消费多次的为老客户
+#用户第一次消费的月份分布和人数统计
+month_df=consume_df.drop_duplicates('user_id',keep='first')
+#month_df.groupby('month')['user_id'].count()
+sns.countplot(x='month',data=month_df)
+#用户最后一次消费的月份分布和人数统计
+month_df1=consume_df.drop_duplicates('user_id',keep='last')
+#month_df1.groupby('month')['user_id'].count()
+sns.countplot(x='month',data=month_df1)
+#新老客户的占比：消费一次的为新客户，消费多次的为老客户
+custer_id=consume_df['user_id'].value_counts().sort_values().to_frame().reset_index()
+new_custer=custer_id[custer_id['user_id']==1]
+print(new_custer['user_id'].count())#新客户
+old_custer=custer_id[custer_id['user_id']!=1]
+old_custer['user_id'].count()#老客户
+old_custer_count=old_custer['user_id'].value_counts()
+sns.distplot(old_custer['user_id'])
+old_custer_count
