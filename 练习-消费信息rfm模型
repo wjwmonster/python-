@@ -79,7 +79,7 @@ old_custer_count
 分析得出每个用户的总购买量和消费金额和最近一次消费时间的表格
 frm模型设计：r表示客户最近一次交易时间的间隔；f表示客户交易的次数；m表示客户交易的金额
 根据rfm模型将用户进行分层
-time_df=consume_df.groupby('user_id')['order_dt'].max()-consume_df.groupby('user_id')['order_dt'].min()#用表中最大的日期减去每个客户最后一次消费的日期算出最近一次交易时间的间隔
+time_df=consume_df['order_dt'].max()-consume_df.groupby('user_id')['order_dt'].min()#用表中最大的日期减去每个客户最后一次消费的日期算出最近一次交易时间的间隔
 rfm_df=pd.merge(df1,df2,on='user_id')
 rfm_df=pd.merge(rfm_df,time_df,on='user_id')#构建rfm数据表
 rfm_df.rename(columns={'order_amount_x':'m','order_amount_y':'f','order_dt':'r'},inplace=True)#rfm数据表重新设置列索引
