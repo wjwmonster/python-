@@ -1,0 +1,10 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+%matplotlib inline
+consume_df=pd.read_csv(r'C:\Users\wjw\Desktop\数据集\7天入门数据分析课件\day11\data\CDNOW_master.txt',sep='\s+',header=None)
+consume_df.columns=['user_id','order_dt','order_product','order_amount']
+print(consume_df.info())#查看数据的信息，可以看到时间序列需修改格式
+print(consume_df.isnull().sum())#可以看出原数据中没有空值
+consume_df.describe()
