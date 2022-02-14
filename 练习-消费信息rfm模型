@@ -1,4 +1,4 @@
-1.导入python库和模块
+1.导入库和模块
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
