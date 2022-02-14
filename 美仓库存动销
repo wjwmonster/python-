@@ -1,0 +1,210 @@
+# -2.2-US-pipeline（最新规则）
+
+
+#读取数据
+#us动销的主体数据来源（OMS-reports-ERP reports-411报表）
+us_adjust=pd.read_csv(r'C:\Users\Administrator\Desktop\常用表格\report_411_01_24_2022.csv',encoding='unicode_escape')
+
+#读取库存数据（OMS-reports-ERP reports-409报表（OMS-reports-ERP reports-313报表））
+us_inv=pd.read_csv(r'C:\Users\Administrator\Desktop\常用表格\report_409_01_24_2022.csv',encoding='unicode_escape')
+us_313=pd.read_csv(r'C:\Users\Administrator\Desktop\常用表格\report_313_01_24_2022.csv',encoding='unicode_escape')
+
+#读取sku信息数据,需要将现在和一个月前的价格做对比（OMS-reports-ERP reports-301报表）
+us_301_now=pd.read_csv(r'C:\Users\Administrator\Desktop\常用表格\report_301_01_24_2022.csv',encoding='unicode_escape')
+us_301_monthago=pd.read_csv(r'C:\Users\Administrator\Desktop\常用表格\report_301_12_26_2021.csv',encoding='unicode_escape')
+
+#读取us-pipeline数据（采购组云盘报表）
+us_pipeline=pd.read_excel(r'C:\Users\Administrator\Desktop\US_InventoryPipline_Report_202204_2022-01-24(For Frances)_V2.xlsx',header=6)
+
+#读取构成bundle数据（OMS-inventory-sales bom）
+bundle_form=pd.read_csv(r'C:\Users\Administrator\Desktop\常用表格\bundle构成.csv',encoding='unicode_escape')
+bundle_form.columns=('sku','catalogId','skuGroupName','componentsSku')
+
+#读取前两周销售额数据（BI系统导出）
+sale_profit=pd.read_csv(r'C:\Users\Administrator\Desktop\常用表格\周销量\2022\w2w3两周销售额.csv',encoding='unicode_escape')
+sale_profit['profit_margin']=sale_profit['grossProfit']/sale_profit['netSales']
+sale_profit['profit_margin'].fillna(0,inplace=True)
+
+#读取品类负责人数据（自己整理）
+general_list=pd.read_excel(r'E:\公司文件\部门数据\重要、通用\分工2021-最新.xlsx',sheet_name='平销人员分工')
+clear_list=pd.read_excel(r'E:\公司文件\部门数据\重要、通用\分工2021-最新.xlsx',sheet_name='清货人员分工')
+
+
+#411报表筛选做美仓的品类
+us_adjust1=us_adjust.loc[(us_adjust['SKUGroup']=='A4_Suspension Kit_M2C')|(us_adjust['SKUGroup']=='A3_Struts Assembly_M2C')\
+                         |(us_adjust['SKUGroup']=='C2_Garden Carts & Wagons')|(us_adjust['SKUGroup']=='C2_Fire Pits & BBQ Accessories')]
+
+#411报表取出所需的数据列
+us_adjust1=us_adjust1.reset_index().drop('index',axis=1).loc[:,'sku':'Grade']
+
+#匹配库存报表中的美仓数据，库存数量取313报表，库存周数取409报表
+us_inv1=us_inv.loc[us_inv['fulfillment_name']=='Gaatu',:]
+us_adjust1=pd.merge(us_adjust1,us_313[['sku','total_available']],how='left',on='sku')
+us_adjust1=pd.merge(us_adjust1,us_inv1[['sku','ito_weeks']],how='left',on='sku')
+us_adjust1.rename(columns={'total_available':'ito_inv'},inplace=True)
+
+#匹配bundle构成信息
+us_adjust2=pd.merge(us_adjust1,bundle_form[['sku','componentsSku']],how='left',left_on='sku',right_on='sku')
+
+#拆分bundle绑定关系的第一个sku记做kit1
+us_adjust2['kit1']=us_adjust2['componentsSku'].str.slice(0,6)
+bundle_form=bundle_form.astype('str')
+
+#匹配kit1的绑定basic信息
+us_adjust3=pd.merge(us_adjust2,bundle_form[['sku','componentsSku']],how='left',left_on='kit1',right_on='sku')
+us_adjust3.drop('sku_y',axis=1,inplace=True)
+us_adjust3.rename(columns={'componentsSku_x':'bundle构成','componentsSku_y':'kit1构成'},inplace=True)
+
+#拆分kit1绑定的basic1、basic2
+us_adjust3['kit1_basic1']=us_adjust3['kit1构成'].str.slice(0,6)
+us_adjust3['kit1_basic2']=us_adjust3['kit1构成'].str.slice(9,15)
+
+##拆分bundle绑定关系的第二个sku记做kit2
+us_adjust3['kit2']=us_adjust3['bundle构成'].str.slice(9,15)
+
+#匹配kit2的绑定basic信息
+us_adjust4=pd.merge(us_adjust3,bundle_form[['sku','componentsSku']],how='left',left_on='kit2',right_on='sku')
+us_adjust4.drop('sku',axis=1,inplace=True)
+us_adjust4.rename(columns={'componentsSku':'kit2构成'},inplace=True)
+
+#拆分kit2绑定的basic1、basic2
+us_adjust4['kit2_basic1']=us_adjust4['kit2构成'].str.slice(0,6)
+us_adjust4['kit2_basic2']=us_adjust4['kit2构成'].str.slice(9,15)
+
+#提取pipeline中sku和对应的在途数量
+us_pipeline1=us_pipeline[['SKU','Total In Transit Inventory(pcs)']]
+us_pipeline1.rename(columns={'SKU':'sku','Total In Transit Inventory(pcs)':'IT'},inplace=True)
+us_pipeline1=us_pipeline1.astype('str')
+
+#上面拆分的sku信息依次匹配在途数量
+list1=['kit1',  'kit1_basic1', 'kit1_basic2', 'kit2', 'kit2_basic1', 'kit2_basic2']
+x=1
+for i in list1:
+    if x<=1:
+        us_adjust5=pd.merge(us_adjust4,us_pipeline1,how='left',left_on=i,right_on='sku')
+        us_adjust5.drop('sku',axis=1,inplace=True)
+        us_adjust5.rename(columns={'IT':i+' IT'},inplace=True)
+        us_adjust5.loc[us_adjust5[i+' IT'].notnull(),i+' IT']=us_adjust5.loc[us_adjust5[i+' IT'].notnull(),i+' IT'].astype('int64')
+        x+=1
+    else:
+        us_adjust5=pd.merge(us_adjust5,us_pipeline1,how='left',left_on=i,right_on='sku')
+        us_adjust5.drop('sku',axis=1,inplace=True)
+        us_adjust5.rename(columns={'IT':i+' IT'},inplace=True)
+        us_adjust5.loc[us_adjust5[i+' IT'].notnull(),i+' IT']=us_adjust5.loc[us_adjust5[i+' IT'].notnull(),i+' IT'].astype('int64')
+
+#计算美仓在途库存，规则如下（对应的kit、basic信息为空值则不计算）：
+#1.有kit对应的basic信息，则basic取最小值作为kit的在途数量；kit没有对应的basic信息，则直接匹配kit库存
+#2.有bundle对应的kit信息，则取kit的最小值作为bundle的在途数量；bundle没有对应的kit信息，则直接匹配bundle在途
+us_adjust5.loc[us_adjust5['kit1_basic2 IT'].isnull(),'kit1 IT2']=us_adjust5['kit1_basic1 IT']
+us_adjust5.loc[(us_adjust5['kit1_basic1 IT'].isnull())|(us_adjust5['kit1_basic1 IT']==0),'kit1 IT2']=us_adjust5['kit1 IT']
+us_adjust5.loc[(us_adjust5['kit1_basic1 IT'].notnull())&(us_adjust5['kit1_basic2 IT'].notnull()),'kit1 IT2']=us_adjust5[['kit1_basic1 IT'\
+               ,'kit1_basic2 IT']].min(axis=1)
+us_adjust5.loc[(us_adjust5['kit1_basic1 IT']==0)&(us_adjust5['kit1_basic2 IT']==0),'kit1 IT2']=us_adjust5['kit1 IT']
+
+us_adjust5.loc[us_adjust5['kit2_basic2 IT'].isnull(),'kit2 IT2']=us_adjust5['kit2_basic1 IT']
+us_adjust5.loc[(us_adjust5['kit2_basic1 IT'].isnull())|(us_adjust5['kit2_basic1 IT']==0),'kit2 IT2']=us_adjust5['kit2 IT']
+us_adjust5.loc[(us_adjust5['kit2_basic1 IT'].notnull())&(us_adjust5['kit2_basic2 IT'].notnull()),'kit2 IT2']=us_adjust5[['kit2_basic1 IT'
+               ,'kit2_basic2 IT']].min(axis=1)
+us_adjust5.loc[(us_adjust5['kit2_basic1 IT']==0)&(us_adjust5['kit2_basic2 IT']==0),'kit2 IT2']=us_adjust5['kit2 IT']
+
+us_adjust5['kit1 IT2']=us_adjust5['kit1 IT2'].fillna(0)
+us_adjust5['kit2 IT2']=us_adjust5['kit2 IT2'].fillna(0)
+us_adjust5['bundle IT']=us_adjust5[['kit1 IT2','kit2 IT2']].min(axis=1)
+us_adjust5.loc[(us_adjust5['kit2_basic1 IT'].isnull())&(us_adjust5['kit2 IT'].isnull()),'bundle IT']=us_adjust5['kit1 IT2']
+
+us_adjust5.rename(columns={'sku_x':'sku'},inplace=True)
+us_pipeline1['sku']=us_pipeline1['sku'].astype('int64')
+us_adjust5=pd.merge(us_adjust5,us_pipeline1,how='left',on='sku')
+us_adjust5.loc[us_adjust5['bundle构成'].isnull(),'bundle IT']=us_adjust5['IT']
+
+#结合PurchasingStatus和FBAStatus判断sku的综合状态
+#规则：庭院+电动葫芦的EOL-H、EOL-SH不计入EOL状态；其他品类EOL的均算作EOL状态；
+us_adjust5['综合Status']=None
+us_adjust5.loc[((us_adjust5['SKUGroup']=='C2_Electric Hoist & Winch')|(us_adjust5['SKUGroup']=='C2_Fire Pits & BBQ Accessories')\
+               |(us_adjust5['SKUGroup']=='C2_Garden Carts & Wagons'))&(us_adjust5['PurchasingStatus']=='EOL')\
+               &((us_adjust5['FBAStatus']=='EOL-S')|(us_adjust5['FBAStatus']=='Not Ready')|(us_adjust5['FBAStatus']=='EOL-O')\
+                |(us_adjust5['FBAStatus']=='EOL-Q')|(us_adjust5['FBAStatus']=='EOL-M')),'综合Status']='EOL'
+us_adjust5.loc[((us_adjust5['SKUGroup']=='C2_Electric Hoist & Winch')|(us_adjust5['SKUGroup']=='C2_Fire Pits & BBQ Accessories')\
+               |(us_adjust5['SKUGroup']=='C2_Garden Carts & Wagons'))&us_adjust5['综合Status'].isnull(),'综合Status']='Active'
+
+us_adjust5.loc[((us_adjust5['SKUGroup']!='C2_Electric Hoist & Winch')&(us_adjust5['SKUGroup']!='C2_Fire Pits & BBQ Accessories')\
+               &(us_adjust5['SKUGroup']!='C2_Garden Carts & Wagons'))&(us_adjust5['PurchasingStatus']=='EOL')\
+               &((us_adjust5['FBAStatus']=='EOL-S')|(us_adjust5['FBAStatus']=='Not Ready')|(us_adjust5['FBAStatus']=='EOL-O')\
+                |(us_adjust5['FBAStatus']=='EOL-Q') |(us_adjust5['FBAStatus']=='EOL-M')|(us_adjust5['FBAStatus']=='Ready')\
+                |(us_adjust5['FBAStatus']=='EOL-H')|(us_adjust5['FBAStatus']=='EOL-SH')),'综合Status']='EOL'
+us_adjust5.loc[((us_adjust5['SKUGroup']!='C2_Electric Hoist & Winch')&(us_adjust5['SKUGroup']!='C2_Fire Pits & BBQ Accessories')\
+               &(us_adjust5['SKUGroup']!='C2_Garden Carts & Wagons'))&us_adjust5['综合Status'].isnull(),'综合Status']='Active'
+
+#匹配最近两周的销售额、利润率数据
+us_adjust6=pd.merge(us_adjust5,sale_profit[['sku','unitsOrdered','netSales','profit_margin']],how='left',on='sku')
+us_adjust6['profit_margin1']=us_adjust6['profit_margin']*0
+us_adjust6.loc[us_adjust6['profit_margin1']==0,'profit_margin2']=us_adjust6['profit_margin']
+us_adjust6.loc[us_adjust6['profit_margin1'].isnull(),'profit_margin2']=0
+
+#有库存同时库存周数为0的，库存周数需调整为100
+us_adjust6.loc[(us_adjust6['ito_inv']>0)&(us_adjust6['ito_weeks']==0),'ito_weeks']=100
+
+#根据库存数量和库存周数预估每周销量
+us_adjust6['Weekly Forecast QTY']=us_adjust6['ito_inv']/us_adjust6['ito_weeks']
+us_adjust6.loc[us_adjust6['ito_inv']==0,'Weekly Forecast QTY']=0
+
+#bundle在途数据为空的设置为0
+us_adjust6.loc[us_adjust6['bundle IT'].isnull(),'bundle IT']=0
+us_adjust6['bundle IT']=us_adjust6['bundle IT'].astype('int64')
+
+#在途周数=在途数量/周预测销量；有在途且预测销量为0的在途周数为100；
+us_adjust6['IT周数']=None
+us_adjust6.loc[(us_adjust6['Weekly Forecast QTY']==0)&(us_adjust6['bundle IT']>0),'IT周数']=100
+us_adjust6.loc[(us_adjust6['Weekly Forecast QTY']!=0)&(us_adjust6['bundle IT']>0),'IT周数']\
+    =us_adjust6['bundle IT']/us_adjust6['Weekly Forecast QTY']
+#us_adjust6.loc[us_adjust6['unitsOrdered']==0,'IT周数']=0（测试是否可去掉该行）
+us_adjust6['IT周数'].fillna(0,inplace=True)
+
+#调价类型
+us_adjust6['调价类型']=None
+
+#1.提价-低库存：Active，OH>5pcs，OH<8周，IT<4周
+us_adjust6.loc[(us_adjust6['综合Status']=='Active')&(us_adjust6['ito_inv']>5)&(us_adjust6['ito_weeks']<8)&(us_adjust6['IT周数']<4)\
+               ,'调价类型']='FBM提价-低库存：Active，OH>5,OH<8周,IT<4周'
+
+#2.提价-低库存：EOL，OH>5pcs,OH<4周
+us_adjust6.loc[(us_adjust6['综合Status']=='EOL')&(us_adjust6['ito_inv']>5)&(us_adjust6['ito_weeks']<4),'调价类型']\
+            ='FBM提价-低库存：EOL，OH>5,OH<4周'
+
+#3.提价-低利润率：Active，2周利润率<10%
+us_adjust6.loc[(us_adjust6['综合Status']=='Active')&(us_adjust6['profit_margin2']<0.1),'调价类型']='FBM提价-低利润：Active，2周利润率<10%'
+
+#4.降价-积压：OH>50pcs，周数>40周
+us_adjust6.loc[(us_adjust6['ito_inv']>50)&(us_adjust6['ito_weeks']>40),'调价类型']='FBM降价-积压：OH>50pcs，周数>40周'
+
+#匹配品类负责人数据
+us_adjust6.rename(columns={'SKUGroup':'SKU Group'},inplace=True)
+us_adjust7=pd.merge(us_adjust6,general_list.loc[:,['SKU Group','Amazon平销组']],how='left',on='SKU Group')
+us_adjust8=pd.merge(us_adjust7,clear_list.loc[:,['SKU Group','Q4']],how='left',on='SKU Group')
+us_adjust8.loc[us_adjust8['GroupType']=='General Group','负责人']=us_adjust8['Amazon平销组']
+us_adjust8.loc[us_adjust8['GroupType']=='Clearance Group','负责人']=us_adjust8['Q4']
+#us_adjust8['bundle IT'].fillna(0,inplace=True) #（测试是否可去掉该行）
+
+#当前价格为当前301报表最后两列价格取最小值
+price_now=us_301_now[['sku','standard_price','sale_price']].loc[(us_301_now['Fulfillment']=='FBG')&(us_301_now['site']=='Amazon US')\
+          &(us_301_now['listing_status']=='Active'),:]
+price_now['price_now']=price_now[['standard_price','sale_price']].min(axis=1)
+
+#一个月前的价格为一个月前的301报表最后两列价格取最小值
+price_month_ago=us_301_monthago[['sku','standard_price','sale_price']].loc[(us_301_monthago['Fulfillment']=='FBG')\
+                &(us_301_monthago['site']=='Amazon US')&(us_301_monthago['listing_status']=='Active'),:]
+price_month_ago['price_month_ago']=price_month_ago[['standard_price','sale_price']].min(axis=1)
+
+#将当前价格和一个月前的价格都匹配到表中，计算价格变动幅度
+us_adjust10=pd.merge(us_adjust9,price_now[['sku','price_now']],how='left',on='sku')
+us_adjust11=pd.merge(us_adjust10,price_month_ago[['sku','price_month_ago']],how='left',on='sku')
+us_adjust11['价格变动']=(us_adjust11['price_now']-us_adjust11['price_month_ago'])/us_adjust11['price_month_ago']
+
+#数据报表对列进行排序
+us_adjust9=us_adjust8[['sku', 'asin', 'SKU Group', 'title', 'catalog_id', 'SalesTeam','site_name', 'account', 'PrimaryFulfillment'\
+                       ,'PurchasingStatus', 'FBAStatus','综合Status','SalesGroup', 'GroupType', 'Grade', 'ito_inv','ito_weeks','unitsOrdered'\
+                       ,'netSales', 'profit_margin2',  'bundle构成', 'kit1', 'kit1构成', 'kit1_basic1', 'kit1_basic2','kit2', 'kit2构成'\
+                       , 'kit2_basic1', 'kit2_basic2', 'kit1 IT','kit1_basic1 IT', 'kit1_basic2 IT', 'kit2 IT', 'kit2_basic1 IT'\
+                       ,'kit2_basic2 IT', 'kit1 IT2','kit2 IT2', 'bundle IT','IT周数', '调价类型', '负责人']]
+
+us_adjust11.to_excel(r'C:\Users\Administrator\Desktop\us-pipeline1.xlsx')
