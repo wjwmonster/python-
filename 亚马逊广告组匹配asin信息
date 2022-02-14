@@ -1,4 +1,4 @@
-# -[可用]4.0-匹配广告组对应asin
+# -4.0-匹配广告组对应asin
 
 import pandas as pd
 import numpy as np
