@@ -1,0 +1,52 @@
+# -0.1计算sku size
+
+#size报表更新只需更新数据源执行即可
+#读取尺寸数据源报表（包括354、416报表，下载地址erp-oms-reports列表下）
+size_354=pd.read_csv(r'C:\Users\Administrator\Desktop\常用表格\report_354_01_03_2022.csv',encoding='unicode_escape')
+size_416=pd.read_csv(r'C:\Users\Administrator\Desktop\常用表格\report_416_01_03_2022.csv',encoding='unicode_escape')
+
+#亚马逊官方提供的size数据，有亚马逊提供size的以亚马逊提供的为准，其他的以测算结果为准
+size_amazon=pd.read_csv(r'C:\Users\Administrator\Desktop\常用表格\亚马逊size.csv',encoding='unicode_escape')
+
+#354/416为同一数据源，需要将两个数据源报表合并成为一个
+size_sum=pd.concat([size_354[['sku','weight','package_weight','dimension']],size_416[['sku','weight','package_weight','dimension']]]\
+                   ,axis=0).reset_index()
+
+#数据源中尺寸数据为长*高*宽的格式，拆分尺寸列数据为长宽高三列
+size_sum1=pd.concat([size_sum,size_sum['dimension'].str.split('*',expand=True)],axis=1).loc[:,['sku','weight','package_weight',0,1,2]]
+
+#尺寸列数据中的空值填充为0
+size_sum1.fillna(0,inplace=True)
+
+#尺寸数据列转换数据类型为float
+size_sum1[[0,1,2]]=size_sum1[[0,1,2]].astype('float')
+
+#商品重量+包装重量=总重量
+size_sum1['sum_weight']=size_sum1['weight']+size_sum1['package_weight']
+
+#按比例将重量转换为英镑（1磅=453.59克），尺寸转换为英寸（1英寸=2.54厘米），取最长边为长，次长为宽，短边为高
+size_sum1['sum_weight_lb']=size_sum1['sum_weight']/453.59
+size_sum1['lenth_in']=(size_sum1[[0,1,2]].max(axis=1))/2.54
+size_sum1['width_in']=(size_sum1[[0,1,2]].median(axis=1))/2.54
+size_sum1['high_in']=(size_sum1[[0,1,2]].min(axis=1))/2.54
+
+#计算商品为标准尺寸或oversize，总重或任意一边超出亚马逊的标准均算作oversize
+size_sum1['size_count']=None
+size_sum1.loc[(size_sum1['sum_weight_lb']>20)|(size_sum1['lenth_in']>18)|(size_sum1['width_in']>14)|(size_sum1['high_in']>8)\
+              ,'size_count']='Oversize'
+size_sum1['size_count'].fillna('Standard',inplace=True)
+
+#sku列筛选掉异常数据，并转换数据类型为整数
+size_amazon=size_amazon.loc[size_amazon['sku']!='sku']
+size_amazon['sku']=size_amazon['sku'].astype('int')
+
+#亚马逊提供的尺寸表，根据sku删除重复项
+size_amazon1=size_amazon[['sku','storageType']].drop_duplicates('sku')
+
+#测算结果结合亚马逊尺寸综合判断；sku有亚马逊size的以亚马逊的为准，没有的以计算结果为准
+size_sum2=pd.merge(size_sum1,size_amazon1,how='left',on='sku')
+size_sum2['综合size']=None
+size_sum2.loc[size_sum2['storageType'].notnull(),'综合size']=size_sum2['storageType']
+size_sum2.loc[size_sum2['storageType'].isnull(),'综合size']=size_sum2['size_count']
+
+size_sum2.to_excel(r'C:\Users\Administrator\Desktop\Amazon sku size.xlsx')
