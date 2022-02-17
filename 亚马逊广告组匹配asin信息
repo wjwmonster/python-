@@ -1,4 +1,4 @@
-# -4.0-匹配广告组对应asin
+# -4.0-亚马逊广告组匹配对应asin相关信息
 
 import pandas as pd
 import numpy as np
