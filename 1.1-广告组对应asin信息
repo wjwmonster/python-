@@ -1,0 +1,72 @@
+#1.1-广告组对应asin信息
+
+#读取301数据（gaatu系统-OMS-reports）
+sp_price=pd.read_csv(r'C:\Users\Administrator\Desktop\常用表格\report_301_02_08_2022.csv',encoding='unicode_escape')
+
+#读取409库存数据，分为美仓库存和fba库存（gaatu系统-OMS-reports）
+sp_inv=pd.read_csv(r'C:\Users\Administrator\Desktop\常用表格\report_409_02_08_2022.csv',encoding='unicode_escape')
+sp_inv_fbt=sp_inv.loc[sp_inv['fulfillment_name']=='Gaatu',['sku','ito_inv','ito_weeks']]
+sp_inv_fba=sp_inv.loc[sp_inv['fulfillment_name']=='Amazon',['sku','ito_inv','ito_weeks']]
+
+#读取等级数据（OMS-sales-listing-group type）
+sp_grade=pd.read_excel(r'E:\公司文件\部门数据\重要、通用\sku等级-22年1月.xlsx')
+
+#读取匹配项数据（亚马逊后台导出数据；每次需更新文件位置）
+sp_asin=pd.read_excel(r'C:\Users\Administrator\Desktop\22.1月度广告\数据源-报表分类\sp ad product\合并-sp pro.xlsm')
+sp_asin1=sp_asin.loc[:,['Campaign Name','Ad Group Name','Advertised ASIN']]
+sp_asin2=sp_asin1.drop_duplicates()
+
+#读取品类数据（自己整理）
+Category_five=pd.read_excel(r'E:\公司文件\部门数据\重要、通用\五大品类.xlsx')
+
+#所有广告组及对应的asin，sku的状态、库存、价格等相关信息，后面匹配到广告报表中
+#广告组及对应的asin，根据asin信息，匹配sku、status、price数据
+sp_price1=sp_price.loc[(sp_price['account']!='SOHOAmazon'),['asin','sku','purchasing_status','fba_status', 'standard_price','sale_price']]
+sp_price1.drop_duplicates(subset=['asin'],inplace=True)
+sp_asin3=pd.merge(sp_asin2,sp_price1,how='left',left_on='Advertised ASIN',right_on='asin')
+sp_asin3.drop('asin',axis=1,inplace=True)
+
+#广告组及对应的asin，根据sku信息，分别匹配美仓库存、fba库存数据
+sp_asin4=pd.merge(sp_asin3,sp_inv_fba,how='left',left_on='sku',right_on='sku')
+sp_asin5=pd.merge(sp_asin4,sp_inv_fbt,how='left',left_on='sku',right_on='sku')
+
+#广告组及对应的asin，根据sku信息，匹配等级数据
+sp_grade1=sp_grade.loc[:,['sku','gradeName']]
+sp_asin6=pd.merge(sp_asin5,sp_grade1,how='left',left_on='sku',right_on='sku')
+
+#复制sp_asin6，数据类型转换为字符串类型
+sp_asin7=sp_asin6.copy()
+sp_asin7=sp_asin7.iloc[:,:].astype('str')
+
+#将属于同一广告组的asin、库存、价格信息进行整合，用“|”做间隔
+for i in range(2,sp_asin7.shape[1]):
+    sp_asin7.iloc[:,i]=sp_asin7.iloc[:,i]+"|"
+k=1
+for i in sp_asin7.iloc[:,2:].columns:
+    x=sp_asin7.groupby(['Campaign Name','Ad Group Name'])[i].sum().reset_index()
+    if k==1:
+        sp_asin8=pd.merge(sp_asin7.iloc[:,0:2].drop_duplicates(),x,how='left',left_on=['Campaign Name','Ad Group Name'],right_on=['Campaign Name','Ad Group Name'])
+        k+=1
+    if k>1:
+        sp_asin8=pd.merge(sp_asin8,x,how='left',left_on=['Campaign Name','Ad Group Name'],right_on=['Campaign Name','Ad Group Name'])
+        
+#sku列提取第一个sku，匹配sku group信息
+sp_asin8['sku1']=sp_asin8['sku'].str.slice(0,6)
+sp_price=sp_price.astype('str')
+sp_asin9=pd.merge(sp_asin8,sp_price[['sku','SKUGroup']].drop_duplicates(),how='left',left_on='sku1',right_on='sku')
+
+#根据sku group匹配大类信息
+sp_asin10=pd.merge(sp_asin9,Category_five,how='left',left_on='SKUGroup',right_on='SKU Group')
+
+#删除多余列，修改列名，并进行排列
+sp_asin10.drop(['Advertised ASIN_y','sku1','sku_y', 'SKUGroup'],axis=1,inplace=True)
+sp_asin10.rename(columns={'Advertised ASIN_x':'asin','sku_x':'sku','ito_inv_x':'fba inv','ito_weeks_x':'fba inv week', \
+                          'ito_inv_y':'us inv', 'ito_weeks_y':'us inv week'},inplace=True)
+sp_asin11=sp_asin10[[ 'Category','SKU Group','Campaign Name', 'Ad Group Name', 'asin', 'sku', 'purchasing_status',\
+       'fba_status', 'standard_price', 'sale_price', 'fba inv', 'fba inv week','us inv', 'us inv week', 'gradeName']]
+       
+#导出数据      
+sp_asin11.to_excel(r'C:\Users\Administrator\Desktop\广告词找asin1.xlsx')
+#库存为空的填充为0，库存数据类型转换为int类型
+sp_asin6[['ito_inv_x','ito_inv_y']]=sp_asin6[['ito_inv_x','ito_inv_y']].fillna(0)
+sp_asin6[['ito_inv_x','ito_inv_y']]=sp_asin6[['ito_inv_x','ito_inv_y']].astype('int')
